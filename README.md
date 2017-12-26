@@ -9,7 +9,7 @@ and update the administrative hierarchy of zip codes, municipalities and countie
 
 **Install the package**  
     
-	composer require "phaza/laravel-norwegian-zip-codes"
+	composer require "tjenestetorget/norwegian-zip-codes"
 
 **Add service provider**  
 Add NorwegianZipCodes\Providers\NorwegianZipCodesServiceProvider in *config/app.php* to the 'providers' array
