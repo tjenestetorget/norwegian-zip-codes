@@ -5,6 +5,8 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
+use NorwegianZipCodes\Events\MunicipalityCountyUpdated;
+use NorwegianZipCodes\Events\ZipCodeMunicipalityUpdated;
 use NorwegianZipCodes\Events\ZipCodesUpdated;
 use NorwegianZipCodes\Lib\RemoteZipCodeFileParser;
 use NorwegianZipCodes\Models\County;
@@ -36,6 +38,8 @@ class UpdateZipCodesCommand extends Command {
 	protected $added = 0;
 
 	protected $changed = 0;
+	
+	protected $dispatcher;
 
 	/**
 	 * Execute the console command.
@@ -44,6 +48,8 @@ class UpdateZipCodesCommand extends Command {
 	 */
 	public function fire(Dispatcher $dispatcher)
 	{
+	    $this->dispatcher = $dispatcher;
+	    
 		$dispatcher->fire('zip_codes.update.starting');
 
 		$this->counties = County::all();
@@ -80,6 +86,13 @@ class UpdateZipCodesCommand extends Command {
 		}
 		else {
 			$municipality->setAttribute('name', $name);
+
+            if($municipality->county_id != $county->id) {
+                $oldCountyId = $municipality->county_id;
+                $municipality->setAttribute('country_id', $county->id);
+                $this->dispatcher->dispatch(new MunicipalityCountyUpdated($municipality, $oldCountyId));
+            }
+
 			$this->checkDirty($municipality);
 			$municipality->save();
 		}
@@ -104,17 +117,24 @@ class UpdateZipCodesCommand extends Command {
 		}
 		else {
 			$zipCode->setAttribute('name', $name);
+			
+			if($municipality->id != $zipCode->municipality_id) {
+                $oldMunicipalityId = $zipCode->municipality_id;
+                $zipCode->setAttribute('municipality_id', $municipality->id);
+			    $this->dispatcher->dispatch(new ZipCodeMunicipalityUpdated($zipCode, $oldMunicipalityId));
+            }
+			
 			$this->checkDirty($zipCode);
 			$zipCode->save();
 		}
 	}
 
-	protected function getRemoteZipCodeFile() {
-		$client = new Client();
-	        $crawler = $client->request('GET', 'http://www.bring.no/radgivning/sende-noe/adressetjenester/postnummer');
-   	        $link = $crawler->filterXPath('//td[text() = "Postnummer i rekkefølge"]/following-sibling::td/a');
-		$url = $link->attr('href');
-		return $url;
-	}
+    protected function getRemoteZipCodeFile() {
+        $client = new Client();
+        $crawler = $client->request('GET', 'http://www.bring.no/hele-bring/produkter-og-tjenester/brev-og-postreklame/andre-tjenester/postnummertabeller');
+        $link = $crawler->filterXPath('//td[text() = "Postnummer i rekkefølge"]/following-sibling::td/a[contains(., "Tab")]');
+        $url = 'http://www.bring.no/'.$link->attr('href');
 
+        return $url;
+    }
 }
