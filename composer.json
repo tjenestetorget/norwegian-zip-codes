@@ -38,6 +38,10 @@
     {
       "name": "Pavel Osipov",
       "email": "pavels.osipovs@gmail.com"
+    },
+    {
+      "name": "Peter Haza",
+      "email": "peter.haza@gmail.com"
     }
   ],
   "minimum-stability": "stable"
