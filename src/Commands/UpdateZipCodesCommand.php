@@ -5,8 +5,10 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
+use NorwegianZipCodes\Events\MunicipalitiesToDeleteFound;
 use NorwegianZipCodes\Events\MunicipalityCountyUpdated;
 use NorwegianZipCodes\Events\ZipCodeMunicipalityUpdated;
+use NorwegianZipCodes\Events\ZipCodesToDeleteFound;
 use NorwegianZipCodes\Events\ZipCodesUpdated;
 use NorwegianZipCodes\Lib\RemoteZipCodeFileParser;
 use NorwegianZipCodes\Models\County;
@@ -15,109 +17,106 @@ use NorwegianZipCodes\Models\ZipCode;
 
 class UpdateZipCodesCommand extends Command {
 
-	/**
-	 * The console command name.
-	 *
-	 * @var string
-	 */
-	protected $name = 'zip_codes:update';
+    /**
+     * The console command name.
+     *
+     * @var string
+     */
+    protected $name = 'zip_codes:update';
 
-	/**
-	 * The console command description.
-	 *
-	 * @var string
-	 */
-	protected $description = 'Updates the norwegian zip codes and municipalities with data from the official authority';
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
+    protected $description = 'Updates the norwegian zip codes and municipalities with data from the official authority';
 
-	/**
-	 *
-	 * @var Collection
-	 */
-	protected $counties;
+    /**
+     *
+     * @var Collection
+     */
+    protected $counties;
 
-	protected $added = 0;
+    protected $added = 0;
 
-	protected $changed = 0;
+    protected $changed = 0;
 
-	protected $changedMunicipalities = [];
+    protected $changedMunicipalities = [];
 
-	protected $changedZipCodes = [];
+    protected $changedZipCodes = [];
 
-	protected $dispatcher;
+    protected $dispatcher;
 
-	/**
-	 * Execute the console command.
-	 *
-	 * @return mixed
-	 */
-	public function fire(Dispatcher $dispatcher)
-	{
-	    $this->dispatcher = $dispatcher;
-	    
-		$dispatcher->fire('zip_codes.update.starting');
+    /**
+     * Execute the console command.
+     *
+     * @return mixed
+     */
+    public function handle(Dispatcher $dispatcher)
+    {
+        $this->dispatcher = $dispatcher;
 
-		$this->counties = County::all();
-		$url            = $this->getRemoteZipCodeFile();
+        $dispatcher->fire('zip_codes.update.starting');
 
-		$parser = app(RemoteZipCodeFileParser::class);
+        $this->counties = County::all();
+        $url = $this->getRemoteZipCodeFile();
+
+        $parser = app(RemoteZipCodeFileParser::class);
         $zipCodeIds = [];
         $municipalityIds = [];
-        $countyIds = [];
 
-		$parser->parse($url, function(RemoteZipCodeObject $object) use(&$zipCodeIds, &$municipalityIds, &$countyIds) {
-			$municipality = $this->updateMunicipality($object->municipality_id, $object->municipality_name);
-			$this->updateZipCode($municipality, $object->id, $object->name);
+        $parser->parse($url, function(RemoteZipCodeObject $object) use(&$zipCodeIds, &$municipalityIds) {
+            $municipality = $this->updateMunicipality($object->municipality_id, $object->municipality_name);
+            $this->updateZipCode($municipality, $object->id, $object->name);
 
             $zipCodeIds[] = $object->id;
             $municipalityIds[] = $municipality->id;
-            $countyIds[] = $object->municipality_id;
-		});
+        });
 
-		$dispatcher->fire(new ZipCodesUpdated($this->added, $this->changed));
+        $dispatcher->fire(new ZipCodesUpdated($this->added, $this->changed));
 
-		$municipalitiesToDelete = Municipality::whereNotIn($municipalityIds)->get();
-		$countiesToDelete = County::whereNotIn($countyIds)->get();
+        $municipalitiesToDelete = Municipality::whereNotIn('id', $municipalityIds)->get();
+        $zipCodesToDelete = ZipCode::whereNotIn('id', $zipCodeIds)->get();
 
-//        dump('Updated: '.$this->changed);
-//        dump('Added: '.$this->added);
-//        dump('Counties to delete: ', $countiesToDelete->pluck('id')->toArray());
-//        dump('Municipalities to delete: ', $municipalitiesToDelete->pluck('id')->toArray());
-//        dump('Zip codes to delete: ', $zipCodeIds->pluck('id')->toArray());
-//        dump('Municipalities with changed counties: ', $this->changedMunicipalities);
-//        dump('Zip codes with changed municipality: ', $this->changedZipCodes);
+        if($municipalitiesToDelete->count()) {
+            $dispatcher->fire(new MunicipalitiesToDeleteFound($municipalitiesToDelete));
+        }
+
+        if($zipCodesToDelete->count()) {
+            $dispatcher->fire(new ZipCodesToDeleteFound($zipCodesToDelete));
+        }
 
         $report = "Updated: " . $this->changed . "\n" .
             "Added: ".$this->added ."\n" .
-            "Counties to delete: " . implode(', ', $countiesToDelete->pluck('id')->toArray())."\n".
             "Municipalities to delete: " . implode(', ', $municipalitiesToDelete->pluck('id')->toArray())."\n".
-            "Zip codes to delete: " . implode(', ', $zipCodeIds->pluck('id')->toArray())."\n".
+            "Zip codes to delete: " . implode(', ', $zipCodesToDelete->pluck('id')->toArray())."\n".
             "Municipalities with changed counties: " . json_encode($this->changedMunicipalities)."\n".
             "Zip codes with changed municipality: " . json_encode($this->changedZipCodes);
 
         dump($report);
 
         \Log::debug($report);
-	}
+    }
 
-	protected function getCounty($municipality_id) {
-		$county_id = substr(str_pad($municipality_id, 4, '0', STR_PAD_LEFT), 0, 2);
-		/* @var County $county */
-		$county = $this->counties->find($county_id);
+    protected function getCounty($municipality_id) {
+        $county_id = substr(str_pad($municipality_id, 4, '0', STR_PAD_LEFT), 0, 2);
+        /* @var County $county */
+        $county = $this->counties->find($county_id);
 
-		return $county;
-	}
+        return $county;
+    }
 
-	protected function updateMunicipality($id, $name) {
-		$county = $this->getCounty($id);
-		$municipality = Municipality::find($id);
+    protected function updateMunicipality($id, $name) {
+        $county = $this->getCounty($id);
+        $municipality = Municipality::find($id);
 
-		if(is_null($municipality)) {
-			$municipality = new Municipality(['id' => $id, 'name' => $name]);
-			$county->municipalities()->save($municipality);
-			$this->added++;
-		}
-		else {
-			$municipality->setAttribute('name', $name);
+        if(is_null($municipality)) {
+            $municipality = new Municipality(['id' => $id, 'name' => $name]);
+            $county->municipalities()->save($municipality);
+            $this->added++;
+        }
+        else {
+            $municipality->setAttribute('name', $name);
 
             if($municipality->county_id != $county->id) {
                 $oldCountyId = $municipality->county_id;
@@ -126,43 +125,43 @@ class UpdateZipCodesCommand extends Command {
                 $this->changedMunicipalities[$municipality->id] = [$oldCountyId, $county->id];
             }
 
-			$this->checkDirty($municipality);
-			$municipality->save();
-		}
+            $this->checkDirty($municipality);
+            $municipality->save();
+        }
 
-		return $municipality;
-	}
+        return $municipality;
+    }
 
-	protected function checkDirty(Model $model) {
-		if($model->isDirty()) {
-			$this->changed++;
-		}
-	}
+    protected function checkDirty(Model $model) {
+        if($model->isDirty()) {
+            $this->changed++;
+        }
+    }
 
-	protected function updateZipCode(Municipality $municipality, $id, $name) {
+    protected function updateZipCode(Municipality $municipality, $id, $name) {
 
-		$zipCode = ZipCode::find($id);
+        $zipCode = ZipCode::find($id);
 
-		if(is_null($zipCode)) {
-			$zipCode = new ZipCode(['id' => $id, 'name' => $name]);
-			$municipality->zip_codes()->save($zipCode);
-			$this->added++;
-		}
-		else {
-			$zipCode->setAttribute('name', $name);
-			
-			if($municipality->id != $zipCode->municipality_id) {
+        if(is_null($zipCode)) {
+            $zipCode = new ZipCode(['id' => $id, 'name' => $name]);
+            $municipality->zip_codes()->save($zipCode);
+            $this->added++;
+        }
+        else {
+            $zipCode->setAttribute('name', $name);
+
+            if($municipality->id != $zipCode->municipality_id) {
                 $oldMunicipalityId = $zipCode->municipality_id;
                 $zipCode->setAttribute('municipality_id', $municipality->id);
 
                 $this->changedZipCodes[$zipCode->id] = [$oldMunicipalityId, $municipality->id];
-			    $this->dispatcher->dispatch(new ZipCodeMunicipalityUpdated($zipCode, $oldMunicipalityId));
+                $this->dispatcher->dispatch(new ZipCodeMunicipalityUpdated($zipCode, $oldMunicipalityId));
             }
-			
-			$this->checkDirty($zipCode);
-			$zipCode->save();
-		}
-	}
+
+            $this->checkDirty($zipCode);
+            $zipCode->save();
+        }
+    }
 
     protected function getRemoteZipCodeFile() {
         $client = new Client();
