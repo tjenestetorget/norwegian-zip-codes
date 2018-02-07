@@ -12,7 +12,7 @@ class ZipCodesToDeleteFound {
 
     protected $zipCodes;
 
-	public function __construct(Collection $zipCode) {
+	public function __construct(Collection $zipCodes) {
 	    $this->zipCodes = $zipCodes;
 	}
 
