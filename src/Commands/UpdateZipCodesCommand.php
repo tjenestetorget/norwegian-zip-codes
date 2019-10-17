@@ -58,7 +58,7 @@ class UpdateZipCodesCommand extends Command {
     public function handle(Dispatcher $dispatcher)
     {
         $this->dispatcher = $dispatcher;
-        $dispatcher->fire('zip_codes.update.starting');
+        $dispatcher->dispatch('zip_codes.update.starting');
 
         $this->patchCounties();
         $this->counties = County::all();
@@ -84,17 +84,17 @@ class UpdateZipCodesCommand extends Command {
             $municipalityIds = array_merge($municipalityIds, array_keys($this->getOsloMunicipalities()));
         }
 
-        $dispatcher->fire(new ZipCodesUpdated($this->added, $this->changed));
+        $dispatcher->dispatch(new ZipCodesUpdated($this->added, $this->changed));
 
         $municipalitiesToDelete = Municipality::whereNotIn('id', $municipalityIds)->get();
         $zipCodesToDelete = ZipCode::whereNotIn('id', $zipCodeIds)->get();
 
         if($municipalitiesToDelete->count()) {
-            $dispatcher->fire(new MunicipalitiesToDeleteFound($municipalitiesToDelete));
+            $dispatcher->dispatch(new MunicipalitiesToDeleteFound($municipalitiesToDelete));
         }
 
         if($zipCodesToDelete->count()) {
-            $dispatcher->fire(new ZipCodesToDeleteFound($zipCodesToDelete));
+            $dispatcher->dispatch(new ZipCodesToDeleteFound($zipCodesToDelete));
         }
 
         $this->deleteDeprecatedCounties();
