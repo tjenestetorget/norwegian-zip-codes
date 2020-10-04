@@ -4,7 +4,7 @@ use Illuminate\Database\Seeder;
 use NorwegianZipCodes\Models\County;
 
 class NorwegianZipCodeSeeds extends Seeder {
-    public function run() {;
+    public function run() {
         County::create( [ 'id' => '03', 'name' => 'Oslo' ] );
         County::create( [ 'id' => '11', 'name' => 'Rogaland' ] );
         County::create( [ 'id' => '15', 'name' => 'Møre og Romsdal' ] );
