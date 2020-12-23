@@ -294,26 +294,47 @@ class UpdateZipCodesCommand extends Command {
         return $this->option(self::OPTION_OSLO_MUNICIPALITIES);
     }
 
+    protected function getNewCounties() {
+        return collect([
+            '30' => ['id' => '30', 'name' => 'Viken', 'oldcounties' => ['01','02','06']],
+            '34' => ['id' => '34', 'name' => 'Innlandet', 'oldcounties' => ['04','05']],
+            '38' => ['id' => '38', 'name' => 'Vestfold og Telemark', 'oldcounties' => ['07','08']],
+            '42' => ['id' => '42', 'name' => 'Agder', 'oldcounties' => ['09','10']],
+            '46' => ['id' => '46', 'name' => 'Vestland', 'oldcounties' => ['12','14']],
+            '50' => ['id' => '50', 'name' => 'Trøndelag', 'oldcounties' => ['16','17']],
+            '54' => ['id' => '54', 'name' => 'Troms og Finnmark', 'oldcounties' => ['19','20']]
+        ]);
+    }
+
     protected function patchCounties()
     {
-        if(County::find('50')) {
-            return;
+        $newCounties = $this->getNewCounties();
+
+        $existingCounties = County::find($newCounties->keys()->all());
+
+        $mssingCounties = $newCounties->pluck('id')->diff($existingCounties->pluck('id'));
+
+        foreach($mssingCounties as $countyId) {
+            $county = new County([
+                'id' => $newCounties[$countyId]['id'],
+                'name' => $newCounties[$countyId]['name']
+            ]);
+
+            $county->save();
         }
 
-        $county = new County([
-            'id' => '50',
-            'name' => 'Trøndelag'
-        ]);
+        $municipalities = Municipality::query();
+        foreach($newCounties as $countyid => $county){
+            Municipality::whereIn('county_id', $county['oldcounties'])->update([
+                'county_id' => $countyid
+            ]);
+        }
 
-        $county->save();
-
-        Municipality::whereIn('county_id', ['16', '17'])->update([
-            'county_id' => '50'
-        ]);
     }
 
     protected function deleteDeprecatedCounties()
     {
-        County::whereIn('id', ['16', '17'])->delete();
+        $counties = $this->getNewCounties()->pluck('oldcounties')->flatten();
+        County::whereIn('id', $counties)->delete();
     }
 }
